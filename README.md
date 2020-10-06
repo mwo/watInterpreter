@@ -1,5 +1,5 @@
 # watInterpreter
-watInterpreter can parse and execute wat files. This project is mainly just for fun.
+watInterpreter can parse and execute wat (text representaion of wasm) files. This project is mainly just for fun.
 
 # other
 watInterpreter also includes certain type expantion. 
