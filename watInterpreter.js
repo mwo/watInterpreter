@@ -119,6 +119,9 @@ class watInterpreter {
                 set_local: {
                     reg: "\\s(\\$.+)"
                 },
+                tee_local: {
+                    reg: "\\s(\\$.+)"
+                },
                 ...sobj
             },
             fSymbols = Object.keys(funcargs) //all actual instructions
@@ -188,8 +191,9 @@ class watInterpreter {
                     });
 
                     //brain, sadly can't use Array.from for support reasons ;(
-                    let args = [...Array(cdir.length)].map(_=>stack.pop());
-                    cdir(...args); //call
+                    let args = [...Array(cdir.length)].map(_=>stack.pop()),
+                        ret = cdir.apply(this, args); //call
+                    if (ret != undefined) stack.push(ret);
                 },
                 get_local({
                     stack,
@@ -207,6 +211,16 @@ class watInterpreter {
                         [,pindex] = varname.match(/(\d+)/),
                         fargs = _local[fname];
                     fargs[pindex] = val;
+                },
+                tee_local({
+                    stack,
+                    _local
+                }, [varname], fname) {
+                    let val = stack.pop(),
+                        [,pindex] = varname.match(/(\d+)/),
+                        fargs = _local[fname];
+                    fargs[pindex] = val;
+                    stack.push(val);
                 },
                 get_global({
                     stack,
@@ -436,6 +450,7 @@ class watInterpreter {
         this.symbols = symbols;
         this.symarg = symarg;
         this.symfuncs = symfuncs;
+        this.sSymbols = ["if", "else", "end"];
     }
 
     //relaces LF and CRLF lines with a space
@@ -463,9 +478,9 @@ class watInterpreter {
         return [str, part]
     }
 
-    //fixed
+    //needs fixing
     getParams(str) {
-        let args = str.match(/\([A-Za-z0-9 _"$]+\)/g) || [],
+        let args = [...new Set(str.match(/\([A-Za-z0-9 _"$]+\)/g) || [])],
             top = [...args].pop(),
             after = str.slice(str.indexOf(top) + top.length);
         return [args, after]
@@ -552,7 +567,7 @@ class watInterpreter {
             }
         })
         let rarr = [fargs, ret];
-                        //used iterator so conversion works
+        //used iterator so conversion works
         stack.splice(0, ([...fargs, ret]).length) //remove parsed elements from stack
 
         return rarr;
@@ -567,6 +582,7 @@ class watInterpreter {
                 ilit: false,
                 cstr: ''
             }
+
         //don't tokenize strings because they are literal
         arr.forEach(token=>{
             //if literal begin literall
@@ -582,9 +598,9 @@ class watInterpreter {
                 iobj.ilit = false;
                 iobj.cstr = '';
             }
-        })
+        });
 
-        return rarr.filter(isNaN);
+        return rarr.filter(e=>e!='');
     }
 
     //depricated
@@ -609,19 +625,27 @@ class watInterpreter {
         tokens.forEach(token => {
             let iArr = this.fSymbols.map(e => [token.includes(e), e]),
                 iSymbols = iArr.filter(e => e[0]).map(e => e[1]),
-                sym = iSymbols.pop();
+                sym = iSymbols.pop(),
+                ispc = this.sSymbols.includes(token);
 
             //if end of args remove is arg flag
             if (argd.carg >= argd.maxc) update();
 
             if (argd.iarg) return (argd.cstr += " " + token, argd.carg++); //concat token with args
 
-            if (!sym && !argd.iarg) return; //throw new Error(`Unexpected token "${token}"`)
+            if (!sym && !argd.iarg && !ispc) return; //throw new Error(`Unexpected token "${token}"`)
 
+            //set
+            if (ispc) {
+                argd.cstr += token;
+                argd.iarg = true;
+                argd.maxc = 0;
+            } else {
+                let count = this.funcargs[argd.cstr += sym].count;
+                argd.iarg = true;
+                argd.maxc = count;
+            }
             
-            let count = this.funcargs[argd.cstr += sym].count;
-            argd.iarg = true;
-            argd.maxc = count;
 
             if (argd.maxc == 0) update();
 
@@ -702,22 +726,46 @@ class watInterpreter {
     }
     //--end
 
-    //add integrated if statements
+    //add loops
     runIntructions(tokens, fname = null) {
+        let pdata = {
+            isif: false,
+            ise: false,
+            ifarr: [],
+            elsearr: []
+        }
         tokens.forEach(token => {
             let iArr = this.fSymbols.map(e => [token.includes(e), e]), //maps symbols
                 sparse = iArr.some(e => e[0] == true), //checks if the text includes any symbols
                 iSymbols = iArr.filter(e => e[0]).map(e => e[1]); //array of just symbol text
 
-            if (!sparse && !(iSymbols.pop() in this.funcSymbls)) return; //if no symbol or missing func return
-
-            //get args
-            let sym = iSymbols.pop(),
-                symobj = this.funcargs[sym],
-                reg = symobj.reg || new RegExp(),
-                args = [...(token.match(reg) || []).slice(1)];
-
-            this.funcSymbls[sym](this._module, args, fname); //call symbol
+            
+            switch (token) {
+                case this.sSymbols[0]: pdata.isif = true; break;
+                case this.sSymbols[1]: pdata.ise = true; break;
+                case this.sSymbols[2]: 
+                    pdata.isif = false;
+                    pdata.ise = false;
+                    let top = this._module.stack.pop(),
+                        res = this.runIntructions.call(this, top ? pdata.ifarr : pdata.elsearr, fname);
+                    this._module.stack.push(res);
+                    break;
+            }
+            
+            if (pdata.isif && !this.sSymbols.includes(token)) {
+                (pdata.ise ? pdata.elsearr : pdata.ifarr ).push(token);
+            } else {
+                if (!sparse && !(iSymbols.pop() in this.funcSymbls)) return; //if no symbol or missing func return
+    
+                //get args
+                let sym = iSymbols.pop(),
+                    symobj = this.funcargs[sym],
+                    reg = symobj.reg || new RegExp(),
+                    args = [...(token.match(reg) || []).slice(1)],
+                    cargs = [this._module, args, fname];
+    
+                this.funcSymbls[sym].apply(this, cargs); //call symbol
+            }
         })
 
         return this._module.stack.pop();
@@ -779,8 +827,9 @@ class watInterpreter {
         const globals = this.getGlobals(focus); //parse global vars before functions running
 
         globals.forEach(globl => {
-            let gname = globl.match(/global\s\$([0-9A-Za-z.]+)\s/)[1],
-                [gparams, val] = this.getParams(globl),
+            let [,gname] = globl.match(/global\s\$([0-9A-Za-z.]+)\s/) || [];
+            if (!gname) return;
+            let [gparams, val] = this.getParams(globl),
                 ret = this.runIntructions([val]);
 
             this._module._local[gname] = ret;
@@ -793,8 +842,9 @@ class watInterpreter {
         const funcs = this.getFuncs(focus);
 
         funcs.forEach(func => {
-            let fname = func.match(/func\s\$([0-9A-Za-z.]+)\s/)[1],
-                [fparams, instructions] = this.getParams(func);
+            let [,fname] = func.match(/func\s\$([0-9A-Za-z.]+)\s/) || [];
+            if (!fname) return;
+            let [fparams, instructions] = this.getParams(func);
                 
             
             //skip functions that do nothing and self exec
