@@ -108,7 +108,7 @@ class watInterpreter {
                     reg: "\\s(\\$.+)"
                 },
                 const: {
-                    reg: "\\s(\\d+)"
+                    reg: "\\s([0-9-]+)"
                 },
                 get_global: {
                     reg: "\\s(\\$.+)"
