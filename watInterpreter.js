@@ -8,6 +8,18 @@ Array.from = function (arr, mapfn) {
     return JSON.parse(JSON.stringify(arr)).map(mapfn)
 }
 
+Array.prototype.includes = function (e) {
+    return this.indexOf(e) >= 0;
+}
+
+function nset(arr) {
+    var narr = [];
+    arr.forEach(function(e){
+        if (narr.indexOf(e) == -1) narr.push(e);
+    })
+    return narr;
+}
+
 function _toConsumableArray(arr) {
     return (
         _arrayWithoutHoles(arr) ||
@@ -54,9 +66,9 @@ function _arrayLikeToArray(arr, len) {
 Array.prototype.flatn = function () {
     return this.map(function (e) {
         return e.constructor.name == "Number" ? [e] : _toConsumableArray(e);
-    }).map(function(e){
+    }).map(function (e) {
         return (e.constructor.name == "Array" && e.length == 1) ? +e : e.flatn();
-    }).toString().split(',').map(function(e){
+    }).toString().split(',').map(function (e) {
         return +e
     })
 }
@@ -92,7 +104,7 @@ class watInterpreter {
         this.memAloc = memAloc;
 
         //symbols ---------------------------------------------------------------------------------
-        var noarg = ["memory.grow","memory.size","nop", "add", "mul", "ge_s", "ge_u", "div_s", "div_u", "sub", "gt_s", "gt_u", "le_s", "le_u", "lt_s", "lt_u", "xor", "eq", "select", "max", "min", "rem_s", "rem_s", "and", "or", "shl", "shr_u", "shr_s", "floor", "rotl", "rotr"],
+        var noarg = ["vec_dec", "memory.grow", "memory.size", "nop", "add", "mul", "ge_s", "ge_u", "div_s", "div_u", "sub", "gt_s", "gt_u", "le_s", "le_u", "lt_s", "lt_u", "xor", "eq", "ne", "select", "max", "min", "rem_s", "rem_s", "and", "or", "shl", "shr_u", "shr_s", "floor", "rotl", "rotr"],
             sobj = {};
         noarg.forEach(e => sobj[e] = {});
 
@@ -108,7 +120,7 @@ class watInterpreter {
                     reg: "\\s(\\$.+)"
                 },
                 const: {
-                    reg: "\\s([0-9-]+)"
+                    reg: "\\s([0-9-.]+)"
                 },
                 get_global: {
                     reg: "\\s(\\$.+)"
@@ -146,7 +158,7 @@ class watInterpreter {
         let rotatel = (a, rn) => (str = a.toString(2), t = rn % str.length, +`0b${str.slice(t)+str.slice(0,t)}`)
 
         function sym(e, stack) {
-            let [p1, p2] = topStack(stack),
+            let [p1, p2] = topStack(stack).map(JSON.stringify),
                 res = eval(p2 + e + p1);
             stack.push(res);
         }
@@ -158,7 +170,7 @@ class watInterpreter {
         }
 
         var _robj = {
-            symbols: ["local","type", "module", "func", "memory", "export", "param", "result", "start"],
+            symbols: ["local", "type", "module", "func", "memory", "export", "param", "result", "start"],
             symarg: {
                 local: /local\s(\$[a-z0-9]+)/,
                 type: /type\s(\$\w\d)/,
@@ -168,30 +180,50 @@ class watInterpreter {
                 start: /start\s(\d)/
             },
             funcSymbls: { //(instuction functionality) module management
-                ["memory.grow"]({memory}){
+                ["memory.grow"]({
+                    memory
+                }) {
                     //allocates 8kb to memory
                     memory = memory.concat(Array(1e3))
                 },
-                ["memory.size"]({stack, memory}){
+                ["memory.size"]({
+                    stack,
+                    memory
+                }) {
                     stack.push(memory.size);
                 },
-                vec_str({stack}, [str]) {
-                    stack.push(str.replace(/\s/, '').slice(1,-1));
+                vec_str({
+                    stack
+                }, [str]) {
+                    stack.push(str.replace(/\s/, '').slice(1, -1));
                 },
-                vec_arr({stack}, [str]) {
+                vec_arr({
+                    stack
+                }, [str]) {
                     stack.push(JSON.parse(str));
                 },
-                call({_local, stack}, [varname]){
+                vec_dec({
+                    stack
+                }) {
+                    let size = stack.pop(),
+                        chars = stack.splice(-size, size);
+                    let res = chars.map(e => String.fromCharCode(e)).join('')
+                    stack.push(res);
+                },
+                call({
+                    _local,
+                    stack
+                }, [varname]) {
                     let dirs = varname.slice(1).split('.'),
                         cdir = _local;
-                    dirs.forEach(e=>{
+                    dirs.forEach(e => {
                         let ret = cdir[e];
                         if (!ret) throw new Error(e + ": Is undefined")
-                        cdir=ret;
+                        cdir = ret;
                     });
 
                     //brain, sadly can't use Array.from for support reasons ;(
-                    let args = [...Array(cdir.length)].map(_=>stack.pop()),
+                    let args = [...Array(cdir.length)].map(_ => stack.pop()),
                         ret = cdir.apply(this, args); //call
                     if (ret != undefined) stack.push(ret);
                 },
@@ -199,7 +231,7 @@ class watInterpreter {
                     stack,
                     _local
                 }, [varname], fname) {
-                    let [,pindex] = varname.match(/(\d+)/),
+                    let [, pindex] = varname.match(/(\d+)/),
                         fargs = _local[fname];
                     stack.push(fargs[pindex]);
                 },
@@ -208,7 +240,7 @@ class watInterpreter {
                     _local
                 }, [varname], fname) {
                     let val = stack.pop(),
-                        [,pindex] = varname.match(/(\d+)/),
+                        [, pindex] = varname.match(/(\d+)/),
                         fargs = _local[fname];
                     fargs[pindex] = val;
                 },
@@ -217,7 +249,7 @@ class watInterpreter {
                     _local
                 }, [varname], fname) {
                     let val = stack.pop(),
-                        [,pindex] = varname.match(/(\d+)/),
+                        [, pindex] = varname.match(/(\d+)/),
                         fargs = _local[fname];
                     fargs[pindex] = val;
                     stack.push(val);
@@ -420,7 +452,9 @@ class watInterpreter {
                     let pindex = (varname.match(/\d+/g) || [])[0];
                     stack.push(['par', pindex, type]);
                 },
-                local({_local},[varname]){
+                local({
+                    _local
+                }, [varname]) {
                     _local[varname] = null;
                 },
                 export ({
@@ -430,12 +464,14 @@ class watInterpreter {
                     //moves local func to export obj
                     _exports[str] = _local[str];
                 },
-                type({acall},[type],fname){
+                type({
+                    acall
+                }, [type], fname) {
                     if (type == "$t0") {
                         acall.push(fname);
                     }
                 },
-                start(){}
+                start() {}
             }
         };
         var {
@@ -451,6 +487,30 @@ class watInterpreter {
         this.symarg = symarg;
         this.symfuncs = symfuncs;
         this.sSymbols = ["if", "else", "end"];
+    }
+
+    obstring(str) {
+        var arr = str.split('').map(e => e.charCodeAt()),
+            instr = arr.map(num => {
+                let opop = {
+                        "i32.add": "i32.sub",
+                        "i32.sub": "i32.add",
+                        "i32.div_s": "i32.mul",
+                        "i32.mul": "i32.div_s"
+                    },
+                    carg = (a1, a2, a3) => [...[a1, a2].map(e => `i32.const ${e}`), a3];
+                let ops = Object.keys(opop),
+                    iop = ops[Math.random() * ops.length | 0],
+                    ofnum = Math.random() * 0xFF | 0,
+                    istc = carg(num, ofnum, opop[iop]),
+                    nnum = this.runIntructions(istc);
+                let str = carg(nnum, ofnum, iop).join('\n');
+                return str;
+            }).join('\n').split('\n')
+
+        instr = instr.concat(["i32.const " + arr.length, "vec_dec"])
+
+        return instr;
     }
 
     //relaces LF and CRLF lines with a space
@@ -480,7 +540,7 @@ class watInterpreter {
 
     //needs fixing
     getParams(str) {
-        let args = [...new Set(str.match(/\([A-Za-z0-9 _"$]+\)/g) || [])],
+        let args = [...nset(str.match(/\([A-Za-z0-9 _"$]+\)/g) || [])],
             top = [...args].pop(),
             after = str.slice(str.indexOf(top) + top.length);
         return [args, after]
@@ -495,7 +555,7 @@ class watInterpreter {
 
         return [stext, rargs[1]];
     }
-    
+
     //this makes my code less gay
     findAllPar(str, search) {
         let arr = [];
@@ -522,7 +582,7 @@ class watInterpreter {
     getDatas(str) {
         return this.findAllPar(str, '(data ');
     }
-    
+
     //imports
     getImports(str) {
         return this.findAllPar(str, '(import "');
@@ -584,23 +644,23 @@ class watInterpreter {
             }
 
         //don't tokenize strings because they are literal
-        arr.forEach(token=>{
+        arr.forEach(token => {
             //if literal begin literall
             if (syms.includes(token[0])) iobj.ilit = true;
 
-            if (iobj.ilit) 
+            if (iobj.ilit)
                 iobj.cstr += " " + token;
             else
                 rarr.push(token);
 
-            if (syms.includes(token[token.length-1])) {
+            if (syms.includes(token[token.length - 1])) {
                 rarr.push(iobj.cstr);
                 iobj.ilit = false;
                 iobj.cstr = '';
             }
         });
 
-        return rarr.filter(e=>e!='');
+        return rarr.filter(e => e != '');
     }
 
     //depricated
@@ -645,13 +705,13 @@ class watInterpreter {
                 argd.iarg = true;
                 argd.maxc = count;
             }
-            
+
 
             if (argd.maxc == 0) update();
 
         });
 
-        return rtokens.filter(e=>e!='');
+        return rtokens.filter(e => e != '');
     }
 
     //memory functions
@@ -733,17 +793,21 @@ class watInterpreter {
             ise: false,
             ifarr: [],
             elsearr: []
-        }
+        }   
         tokens.forEach(token => {
             let iArr = this.fSymbols.map(e => [token.includes(e), e]), //maps symbols
                 sparse = iArr.some(e => e[0] == true), //checks if the text includes any symbols
                 iSymbols = iArr.filter(e => e[0]).map(e => e[1]); //array of just symbol text
 
-            
+
             switch (token) {
-                case this.sSymbols[0]: pdata.isif = true; break;
-                case this.sSymbols[1]: pdata.ise = true; break;
-                case this.sSymbols[2]: 
+                case this.sSymbols[0]:
+                    pdata.isif = true;
+                    break;
+                case this.sSymbols[1]:
+                    pdata.ise = true;
+                    break;
+                case this.sSymbols[2]:
                     pdata.isif = false;
                     pdata.ise = false;
                     let top = this._module.stack.pop(),
@@ -751,19 +815,19 @@ class watInterpreter {
                     this._module.stack.push(res);
                     break;
             }
-            
+
             if (pdata.isif && !this.sSymbols.includes(token)) {
-                (pdata.ise ? pdata.elsearr : pdata.ifarr ).push(token);
+                (pdata.ise ? pdata.elsearr : pdata.ifarr).push(token);
             } else {
                 if (!sparse && !(iSymbols.pop() in this.funcSymbls)) return; //if no symbol or missing func return
-    
+
                 //get args
-                let sym = iSymbols.pop(),
+                let sym = iSymbols.splice(0,1),
                     symobj = this.funcargs[sym],
                     reg = symobj.reg || new RegExp(),
                     args = [...(token.match(reg) || []).slice(1)],
                     cargs = [this._module, args, fname];
-    
+
                 this.funcSymbls[sym].apply(this, cargs); //call symbol
             }
         })
@@ -776,6 +840,12 @@ class watInterpreter {
     }
 
     Module(focus, settings) {
+        //if iterable and not string, convert
+        if ("map" in [...focus] && typeof focus != "string") focus = [...focus].map(e=>String.fromCharCode(e)).join('')
+
+        //converting issues
+        //if (typeof focus != "string" && Symbol.iterator in focus) focus = [...focus].map(e=>String.fromCharCode(e)).join('')
+
         //if settings set entry point set the entry point xd
         if (typeof (settings) == 'object') {
             if ('entry_point' in settings) this.entry_point = settings.entry_point;
@@ -786,12 +856,12 @@ class watInterpreter {
 
         imports.forEach(imprt => {
             let loc = imprt.match(/"[0-9A-Za-z]+"/g)
-            loc = loc.map(e=>e.slice(1,-1));
+            loc = loc.map(e => e.slice(1, -1));
 
             if ('imports' in settings) {
                 let nloc = loc.slice(1),
                     idir = settings.imports;
-                nloc.forEach(e=>{
+                nloc.forEach(e => {
                     let ret = idir[e];
                     if (!ret) throw new Error(e + ": Is undefined")
                     idir = ret;
@@ -799,9 +869,9 @@ class watInterpreter {
 
 
                 let cdir = this._module._local;
-                loc.forEach(e=>{
+                loc.forEach(e => {
                     let ret = cdir[e];
-                    if (ret != undefined) cdir=ret;
+                    if (ret != undefined) cdir = ret;
                 });
 
                 //set value
@@ -812,14 +882,14 @@ class watInterpreter {
         //data parse before for globals
         const datas = this.getDatas(focus);
 
-        datas.forEach(data=>{
+        datas.forEach(data => {
             //actually big brain
             let bi = data.indexOf('('),
                 [dparams, after] = this.parseBrackets(data.slice(bi)),
-                [,str] = after.match(/"([\\0-9]+)"/),
+                [, str] = after.match(/"([\\0-9]+)"/),
                 val = this.runIntructions([dparams]);
             //note 15*3 is bytes that describe attribute
-            this._module.datac[(val+16)+[]] = this.memStr(str.slice(15*3));
+            this._module.datac[(val + 16) + []] = this.memStr(str.slice(15 * 3));
         })
 
         //need to parse data params to convert certain global ints to strings and arrays.
@@ -827,7 +897,7 @@ class watInterpreter {
         const globals = this.getGlobals(focus); //parse global vars before functions running
 
         globals.forEach(globl => {
-            let [,gname] = globl.match(/global\s\$([0-9A-Za-z.]+)\s/) || [];
+            let [, gname] = globl.match(/global\s\$([0-9A-Za-z.]+)\s/) || [];
             if (!gname) return;
             let [gparams, val] = this.getParams(globl),
                 ret = this.runIntructions([val]);
@@ -842,14 +912,14 @@ class watInterpreter {
         const funcs = this.getFuncs(focus);
 
         funcs.forEach(func => {
-            let [,fname] = func.match(/func\s\$([0-9A-Za-z.]+)\s/) || [];
+            let [, fname] = func.match(/func\s\$([0-9A-Za-z.]+)\s/) || [];
             if (!fname) return;
             let [fparams, instructions] = this.getParams(func);
-                
-            
+
+
             //skip functions that do nothing and self exec
             if (/\(type\s\$t0\)/.test(fparams) && instructions == '') return;
-            
+
             //push func name to stack
             this.symfuncs.func(this._module, [fname]);
 
@@ -899,7 +969,7 @@ class watInterpreter {
         if (this.entry_point && this.entry_point in this._module._exports) this._module._exports[entry_point]();
 
         //self exec funcs
-        this._module.acall.forEach(e=>this._module._local[e]());
+        this._module.acall.forEach(e => this._module._local[e]());
 
         return this._module._exports;
     }
