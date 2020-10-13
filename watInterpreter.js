@@ -95,7 +95,8 @@ class watInterpreter {
             stack: [],
             lastl: 0, //last memory location
             acall: [],
-            datac: {}
+            datac: {},
+            dataa: []
         }
 
         this.entry_point = false //optional entry point for wat;
@@ -104,7 +105,7 @@ class watInterpreter {
         this.memAloc = memAloc;
 
         //symbols ---------------------------------------------------------------------------------
-        var noarg = ["vec_dec", "memory.grow", "memory.size", "nop", "add", "mul", "ge_s", "ge_u", "div_s", "div_u", "sub", "gt_s", "gt_u", "le_s", "le_u", "lt_s", "lt_u", "xor", "eq", "ne", "select", "max", "min", "rem_s", "rem_s", "and", "or", "shl", "shr_u", "shr_s", "floor", "rotl", "rotr"],
+        var noarg = ["br","vec_dec", "memory.grow", "memory.size", "nop", "add", "mul", "ge_s", "ge_u", "div_s", "div_u", "sub", "gt_s", "gt_u", "le_s", "le_u", "lt_s", "lt_u", "xor", "eq", "ne", "select", "max", "min", "rem_s", "rem_s", "and", "or", "shl", "shr_u", "shr_s", "floor", "rotl", "rotr"],
             sobj = {};
         noarg.forEach(e => sobj[e] = {});
 
@@ -191,6 +192,9 @@ class watInterpreter {
                     memory
                 }) {
                     stack.push(memory.size);
+                },
+                br({dataa}){
+                    dataa.push('br'); //send break to comunication array
                 },
                 vec_str({
                     stack
@@ -486,7 +490,7 @@ class watInterpreter {
         this.symbols = symbols;
         this.symarg = symarg;
         this.symfuncs = symfuncs;
-        this.sSymbols = ["if", "else", "end"];
+        this.sSymbols = ["if", "else", "end", "loop"];
     }
 
     obstring(str) {
@@ -789,18 +793,24 @@ class watInterpreter {
     //add loops
     runIntructions(tokens, fname = null) {
         let pdata = {
+            isloop: false,
             isif: false,
             ise: false,
             ifarr: [],
-            elsearr: []
+            elsearr: [],
+            looparr: []
         }   
-        tokens.forEach(token => {
+        tokens.forEach(async token => {
             let iArr = this.fSymbols.map(e => [token.includes(e), e]), //maps symbols
                 sparse = iArr.some(e => e[0] == true), //checks if the text includes any symbols
                 iSymbols = iArr.filter(e => e[0]).map(e => e[1]); //array of just symbol text
 
 
+            //if statements and loops
             switch (token) {
+                case this.sSymbols[3]:
+                    pdata.isloop = true;
+                    break;
                 case this.sSymbols[0]:
                     pdata.isif = true;
                     break;
@@ -808,16 +818,34 @@ class watInterpreter {
                     pdata.ise = true;
                     break;
                 case this.sSymbols[2]:
-                    pdata.isif = false;
-                    pdata.ise = false;
-                    let top = this._module.stack.pop(),
-                        res = this.runIntructions.call(this, top ? pdata.ifarr : pdata.elsearr, fname);
-                    this._module.stack.push(res);
+                    if (pdata.isif) {
+                        pdata.isif = false;
+                        pdata.ise = false;
+                        let top = this._module.stack.pop(),
+                            res = this.runIntructions.call(this, top ? pdata.ifarr : pdata.elsearr, fname);
+                        this._module.stack.push(res);
+                        //clear arrs
+                        pdata.ifarr = [];
+                        pdata.elsearr = [];
+                    } else if (pdata.isloop) {
+                        pdata.isloop = false;
+                        while (true) {
+                            let res = this.runIntructions(pdata.looparr, fname);
+                            // this._module.stack.push(res); // push???
+                            if (this._module.dataa[this._module.dataa.length-1] == "br") break;
+                        }
+                    }
                     break;
             }
 
-            if (pdata.isif && !this.sSymbols.includes(token)) {
+            //is external symbol
+            //if not external symbol it's a inctruction
+            let ies = this.sSymbols.includes(token);
+
+            if (pdata.isif && !ies) {
                 (pdata.ise ? pdata.elsearr : pdata.ifarr).push(token);
+            } else if (pdata.isloop && !ies) {
+                pdata.looparr.push(token);
             } else {
                 if (!sparse && !(iSymbols.pop() in this.funcSymbls)) return; //if no symbol or missing func return
 
