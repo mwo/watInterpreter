@@ -13,11 +13,11 @@ Such as the ``vec_str`` and ``vec_arr`` instructions.
 
 # images
 
-![Image](https://i.pxl.blue/CD25BD6.png)
+![Image](https://i.imgur.com/G86ABK6.png)
 
-![Image](https://i.pxl.blue/3F45E1e.png)
+![Image](https://i.imgur.com/13I5JI6.png)
 
 ### loops
-![Image](https://i.pxl.blue/BB61a3b.png)
+![Image](https://i.imgur.com/EVAzNH8.png)
 
-![Image](https://i.pxl.blue/AeDD8EE.png)
+![Image](https://i.imgur.com/fT759MF.png)
