@@ -154,7 +154,7 @@ class watInterpreter {
             return Array.from([, , ], _ => stack.pop());
         }
 
-        //gay ass bitwise rotate that uses string methods
+        //depricated bitwise rotate that uses string methods
         let rotater = (a, rn) => (str = a.toString(2), +`0b${(str.slice(-rn%str.length) + str.slice(0,str.length-(rn%str.length))).slice(0,str.length)}`)
         let rotatel = (a, rn) => (str = a.toString(2), t = rn % str.length, +`0b${str.slice(t)+str.slice(0,t)}`)
 
@@ -560,7 +560,7 @@ class watInterpreter {
         return [stext, rargs[1]];
     }
 
-    //this makes my code less gay
+    //this makes my code less of an eye sore
     findAllPar(str, search) {
         let arr = [];
         while (true) {
